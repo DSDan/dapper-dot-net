@@ -103,10 +103,15 @@ namespace Dapper.Contrib.Extensions
                 var onlyKey = keys.First();
 
                 var name = GetTableName(type);
-
+                
                 // TODO: pluralizer 
                 // TODO: query information schema and only select fields that are both in information schema and underlying class / interface 
-                sql = "select * from " + name + " where " + onlyKey.Name + " = @id";
+
+                if (connection.GetType().Name == "NpgsqlConnection") // Added check for psql quotes, temporary fix
+                    sql = "select * from " + "\"" + name + "\"" + " where " + "\"" + onlyKey.Name + "\"" + " = @id";
+                else
+                    sql = "select * from " + name + " where " + onlyKey.Name + " = @id";
+                
                 GetQueries[type.TypeHandle] = sql;
             }
            
@@ -495,7 +500,8 @@ public class PostgresAdapter : ISqlAdapter
 	public int Insert(IDbConnection connection, IDbTransaction transaction, int? commandTimeout, String tableName, string columnList, string parameterList, IEnumerable<PropertyInfo> keyProperties, object entityToInsert)
 	{
 		StringBuilder sb = new StringBuilder();
-		sb.AppendFormat("insert into {0} ({1}) values ({2})", tableName, columnList, parameterList);
+        columnList = "\"" + columnList.Replace(", ", "\", \"") + "\"";
+        sb.AppendFormat("insert into \"{0}\" ({1}) values ({2})", tableName, columnList, parameterList); // Added string quotes
 
 		sb.Append(" RETURNING ");
 		bool first = true;
@@ -504,7 +510,7 @@ public class PostgresAdapter : ISqlAdapter
 			if (!first)
 				sb.Append(", ");
 			first = false;
-			sb.Append(property.Name);
+			sb.Append("\"" + property.Name + "\""); // Added string quotes
 		}
 		var results = connection.Query(sb.ToString(), entityToInsert, transaction: transaction, commandTimeout: commandTimeout);
 
@@ -512,7 +518,7 @@ public class PostgresAdapter : ISqlAdapter
 		int id = 0;
 		foreach (var p in keyProperties)
 		{
-			var value = ((IDictionary<string, object>)results.First())[p.Name.ToLower()];
+            var value = ((IDictionary<string, object>)results.First())[p.Name]; // Removed .ToLower()
 			p.SetValue(entityToInsert, value, null);
 			if (id == 0)
 				id = Convert.ToInt32(value);
